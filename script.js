@@ -1,124 +1,185 @@
-// Initialize the application when the window loads
-window.onload = async function() {
-    try {
-        // Display loading message
-        const resultElement = document.getElementById('result');
-        resultElement.textContent = "Loading movie data...";
-        resultElement.className = 'loading';
-        
-        // Load data
-        await loadData();
-        
-        // Populate dropdown and update status
-        populateMoviesDropdown();
-        resultElement.textContent = "Data loaded. Please select a movie.";
-        resultElement.className = 'success';
-    } catch (error) {
-        console.error('Initialization error:', error);
-        // Error message already set in data.js
-    }
-};
+const TOP_K = 5;
+const DEFAULT_MOVIE_IDS = [1, 50, 100];
 
-// Populate the movies dropdown with sorted movie titles
-function populateMoviesDropdown() {
-    const selectElement = document.getElementById('movie-select');
-    
-    // Clear existing options except the first placeholder
-    while (selectElement.options.length > 1) {
-        selectElement.remove(1);
+window.addEventListener("DOMContentLoaded", initializeApp);
+
+async function initializeApp() {
+    const status = document.getElementById("status-message");
+    const button = document.getElementById("recommend-btn");
+
+    try {
+        status.textContent = "Loading MovieLens 100K…";
+        status.className = "status status--loading";
+        await loadData();
+        populateMovieSelectors();
+        button.disabled = false;
+        status.textContent = `${movies.length.toLocaleString()} movies and ${ratings.length.toLocaleString()} ratings loaded. Choose three watched titles.`;
+        status.className = "status status--success";
+    } catch (error) {
+        button.disabled = true;
     }
-    
-    // Sort movies alphabetically by title
+}
+
+function populateMovieSelectors() {
     const sortedMovies = [...movies].sort((a, b) => a.title.localeCompare(b.title));
-    
-    // Add movies to dropdown
-    sortedMovies.forEach(movie => {
-        const option = document.createElement('option');
-        option.value = movie.id;
-        option.textContent = movie.title;
-        selectElement.appendChild(option);
+
+    document.querySelectorAll(".movie-select").forEach((select, index) => {
+        select.replaceChildren();
+
+        for (const movie of sortedMovies) {
+            const option = document.createElement("option");
+            option.value = String(movie.id);
+            option.textContent = movie.title;
+            option.selected = movie.id === DEFAULT_MOVIE_IDS[index];
+            select.appendChild(option);
+        }
     });
 }
 
-// Main recommendation function
-function getRecommendations() {
-    const resultElement = document.getElementById('result');
-    
-    try {
-        // Step 1: Get user input
-        const selectElement = document.getElementById('movie-select');
-        const selectedMovieId = parseInt(selectElement.value);
-        
-        if (isNaN(selectedMovieId)) {
-            resultElement.textContent = "Please select a movie first.";
-            resultElement.className = 'error';
-            return;
-        }
-        
-        // Step 2: Find the liked movie
-        const likedMovie = movies.find(movie => movie.id === selectedMovieId);
-        if (!likedMovie) {
-            resultElement.textContent = "Error: Selected movie not found in database.";
-            resultElement.className = 'error';
-            return;
-        }
-        
-        // Show loading message while processing
-        resultElement.textContent = "Calculating recommendations...";
-        resultElement.className = 'loading';
-        
-        // Use setTimeout to allow the UI to update before heavy computation
-        setTimeout(() => {
-            try {
-                // Step 3: Prepare for similarity calculation
-                const likedGenres = new Set(likedMovie.genres);
-                const candidateMovies = movies.filter(movie => movie.id !== likedMovie.id);
-                
-                // Step 4: Calculate Jaccard similarity scores
-                const scoredMovies = candidateMovies.map(candidate => {
-                    const candidateGenres = new Set(candidate.genres);
-                    
-                    // Calculate intersection
-                    const intersection = new Set(
-                        [...likedGenres].filter(genre => candidateGenres.has(genre))
-                    );
-                    
-                    // Calculate union
-                    const union = new Set([...likedGenres, ...candidateGenres]);
-                    
-                    // Calculate Jaccard similarity
-                    const score = union.size > 0 ? intersection.size / union.size : 0;
-                    
-                    return {
-                        ...candidate,
-                        score: score
-                    };
-                });
-                
-                // Step 5: Sort by score in descending order
-                scoredMovies.sort((a, b) => b.score - a.score);
-                
-                // Step 6: Select top recommendations
-                const topRecommendations = scoredMovies.slice(0, 2);
-                
-                // Step 7: Display results
-                if (topRecommendations.length > 0) {
-                    const recommendationTitles = topRecommendations.map(movie => movie.title);
-                    resultElement.textContent = `Because you liked "${likedMovie.title}", we recommend: ${recommendationTitles.join(', ')}`;
-                    resultElement.className = 'success';
-                } else {
-                    resultElement.textContent = `No recommendations found for "${likedMovie.title}".`;
-                    resultElement.className = 'error';
-                }
-            } catch (error) {
-                console.error('Error in recommendation calculation:', error);
-                resultElement.textContent = "An error occurred while calculating recommendations.";
-                resultElement.className = 'error';
-            }
-        }, 100);
-    } catch (error) {
-        console.error('Error in getRecommendations:', error);
-        resultElement.textContent = "An unexpected error occurred.";
-        resultElement.className = 'error';
-    }
+function dotProduct(left, right) {
+    return left.reduce((sum, value, index) => sum + value * right[index], 0);
 }
+
+function vectorMagnitude(vector) {
+    return Math.sqrt(dotProduct(vector, vector));
+}
+
+function cosineSimilarity(left, right) {
+    const denominator = vectorMagnitude(left) * vectorMagnitude(right);
+    return denominator === 0 ? 0 : dotProduct(left, right) / denominator;
+}
+
+function buildUserProfile(watchedMovies) {
+    if (!watchedMovies.length) return Array(genreNames.length).fill(0);
+
+    const totals = Array(genreNames.length).fill(0);
+    for (const movie of watchedMovies) {
+        movie.genreVector.forEach((value, index) => {
+            totals[index] += value;
+        });
+    }
+
+    return totals.map(total => total / watchedMovies.length);
+}
+
+function rankMovies(queryVector, excludedIds, limit = TOP_K, similarity = cosineSimilarity) {
+    const excluded = new Set(excludedIds);
+
+    return movies
+        .filter(movie => !excluded.has(movie.id))
+        .map(movie => ({ ...movie, score: similarity(queryVector, movie.genreVector) }))
+        .filter(movie => movie.score > 0)
+        .sort((left, right) => right.score - left.score || left.title.localeCompare(right.title))
+        .slice(0, limit);
+}
+
+function recommendItemToItem(activeMovieId, excludedIds = [], limit = TOP_K) {
+    const activeMovie = movies.find(movie => movie.id === activeMovieId);
+    if (!activeMovie) return [];
+
+    return rankMovies(activeMovie.genreVector, [activeMovieId, ...excludedIds], limit);
+}
+
+function recommendForProfile(watchedMovieIds, limit = TOP_K) {
+    const watchedMovies = watchedMovieIds
+        .map(id => movies.find(movie => movie.id === id))
+        .filter(Boolean);
+
+    return rankMovies(buildUserProfile(watchedMovies), watchedMovieIds, limit);
+}
+
+function median(values) {
+    if (!values.length) return 0;
+    const sorted = [...values].sort((a, b) => a - b);
+    const midpoint = Math.floor(sorted.length / 2);
+    return sorted.length % 2 === 0
+        ? (sorted[midpoint - 1] + sorted[midpoint]) / 2
+        : sorted[midpoint];
+}
+
+function discoveryStats(recommendations) {
+    const longTailThreshold = median(movies.map(movie => movie.ratingCount));
+    const averagePopularity = recommendations.reduce((sum, movie) => sum + movie.ratingCount, 0) / recommendations.length;
+    const longTailCount = recommendations.filter(movie => movie.ratingCount <= longTailThreshold).length;
+
+    return { longTailThreshold, averagePopularity, longTailCount };
+}
+
+function createRecommendationCard(movie, longTailThreshold) {
+    const item = document.createElement("li");
+    item.className = "recommendation";
+
+    const heading = document.createElement("div");
+    heading.className = "recommendation__heading";
+
+    const title = document.createElement("strong");
+    title.textContent = movie.title;
+    heading.appendChild(title);
+
+    const score = document.createElement("span");
+    score.className = "score";
+    score.textContent = movie.score.toFixed(3);
+    score.title = "Cosine similarity";
+    heading.appendChild(score);
+
+    const details = document.createElement("p");
+    details.textContent = `${movie.genres.join(" · ") || "Unknown genre"} · ${movie.ratingCount} ratings`;
+
+    item.append(heading, details);
+
+    if (movie.ratingCount <= longTailThreshold) {
+        const badge = document.createElement("span");
+        badge.className = "badge";
+        badge.textContent = "Long tail";
+        item.appendChild(badge);
+    }
+
+    return item;
+}
+
+function renderList(elementId, recommendations, longTailThreshold) {
+    const list = document.getElementById(elementId);
+    list.replaceChildren(...recommendations.map(movie => createRecommendationCard(movie, longTailThreshold)));
+}
+
+function renderComparison(itemRecommendations, profileRecommendations) {
+    const itemStats = discoveryStats(itemRecommendations);
+    const profileStats = discoveryStats(profileRecommendations);
+    const summary = document.getElementById("comparison-summary");
+
+    let discoveryConclusion = "Both approaches expose the same number of long-tail titles in this Top-5.";
+    if (profileStats.longTailCount > itemStats.longTailCount) {
+        discoveryConclusion = "For this profile, aggregation exposes more long-tail titles.";
+    } else if (itemStats.longTailCount > profileStats.longTailCount) {
+        discoveryConclusion = "For this selection, the single active item exposes more long-tail titles.";
+    }
+
+    summary.textContent = `${discoveryConclusion} Item-to-item: ${itemStats.longTailCount}/5 long-tail, ${itemStats.averagePopularity.toFixed(1)} average ratings. Profile: ${profileStats.longTailCount}/5 long-tail, ${profileStats.averagePopularity.toFixed(1)} average ratings. Long tail is defined as at or below the catalog median (${itemStats.longTailThreshold} ratings).`;
+}
+
+function getRecommendations() {
+    const selectedIds = [...document.querySelectorAll(".movie-select")]
+        .map(select => Number.parseInt(select.value, 10));
+    const status = document.getElementById("status-message");
+
+    if (selectedIds.some(id => !Number.isInteger(id)) || new Set(selectedIds).size !== selectedIds.length) {
+        status.textContent = "Choose three different movies to build a meaningful profile.";
+        status.className = "status status--error";
+        return;
+    }
+
+    const itemRecommendations = recommendItemToItem(selectedIds[0], selectedIds.slice(1));
+    const profileRecommendations = recommendForProfile(selectedIds);
+    const threshold = median(movies.map(movie => movie.ratingCount));
+
+    renderList("item-results", itemRecommendations, threshold);
+    renderList("profile-results", profileRecommendations, threshold);
+    renderComparison(itemRecommendations, profileRecommendations);
+
+    const activeMovie = movies.find(movie => movie.id === selectedIds[0]);
+    status.textContent = `Compared Top-${TOP_K} results. Item-to-item uses “${activeMovie.title}”; profile-based averages all three genre vectors.`;
+    status.className = "status status--success";
+    document.getElementById("results").hidden = false;
+}
+
+document.getElementById("recommend-btn").addEventListener("click", getRecommendations);

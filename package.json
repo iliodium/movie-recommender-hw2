@@ -1,0 +1,10 @@
+{
+  "name": "content-based-movie-recommender-hw2",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "node --test tests/recommender.test.mjs",
+    "analyze": "node analysis.mjs"
+  }
+}

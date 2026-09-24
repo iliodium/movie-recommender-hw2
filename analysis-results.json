@@ -1,0 +1,34 @@
+{
+  "data": {
+    "movies": 1682,
+    "ratings": 100000,
+    "users": 943
+  },
+  "protocol": {
+    "eligibleUsers": 942,
+    "watchedPerProfile": 3,
+    "topK": 5,
+    "longTailThreshold": 27
+  },
+  "itemToItem": {
+    "recommendationCount": 4710,
+    "catalogCoverage": 358,
+    "longTailShare": 0.34097664543524414,
+    "averageRatingCount": 87.88471337579618,
+    "averageGenreCount": 2.2445859872611464
+  },
+  "profileBased": {
+    "recommendationCount": 4710,
+    "catalogCoverage": 336,
+    "longTailShare": 0.26475583864118896,
+    "averageRatingCount": 102.24373673036094,
+    "averageGenreCount": 2.887473460721868
+  },
+  "averageTop5Overlap": 0.89171974522293,
+  "biasCheck": {
+    "cosineAverageGenreCount": 1.6924541775767674,
+    "dotAverageGenreCount": 2.4672696976910258,
+    "cosineMultiGenreShare": 0.15115448702689835,
+    "dotMultiGenreShare": 0.42335158295643893
+  }
+}
